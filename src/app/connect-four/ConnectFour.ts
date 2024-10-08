@@ -27,6 +27,7 @@ export type GameState = z.infer<typeof GameStateSchema>;
 export class ConnectFour {
   static readonly NUM_COLUMNS = 7;
   static readonly NUM_ROWS = 6;
+  static readonly WINNING_LENGTH = 4;
 
   /**
    * Creates an empty game board.
@@ -61,7 +62,7 @@ export class ConnectFour {
     for (let row = ConnectFour.NUM_ROWS - 1; row >= 0; row--) {
       if (newBoard[coordinate]![row] === null) {
         newBoard[coordinate]![row] = state.currentPlayer;
-        const winner = ConnectFour.checkWinner(newBoard)
+        const winner = ConnectFour.checkWinner(newBoard, state.currentPlayer)
           ? state.currentPlayer
           : null;
         const isGameOver = !!winner || ConnectFour.isBoardFull(newBoard);
@@ -80,9 +81,9 @@ export class ConnectFour {
   }
 
   /**
-   * Checks if there's a winner on the board.
+   * Checks if there's a winner on the board for a specific player.
    */
-  static checkWinner(board: Board): boolean {
+  static checkWinner(board: Board, player: Color): boolean {
     BoardSchema.parse(board);
     const directions = [
       { dc: 1, dr: 0 }, // Horizontal
@@ -93,8 +94,7 @@ export class ConnectFour {
 
     for (let c = 0; c < ConnectFour.NUM_COLUMNS; c++) {
       for (let r = 0; r < ConnectFour.NUM_ROWS; r++) {
-        const color = board[c]?.[r];
-        if (color === null) continue;
+        if (board[c]?.[r] !== player) continue;
 
         for (const { dc, dr } of directions) {
           let count = 1;
@@ -105,10 +105,10 @@ export class ConnectFour {
             cc < ConnectFour.NUM_COLUMNS &&
             rr >= 0 &&
             rr < ConnectFour.NUM_ROWS &&
-            board[cc]?.[rr] === color
+            board[cc]?.[rr] === player
           ) {
             count++;
-            if (count === 4) {
+            if (count === ConnectFour.WINNING_LENGTH) {
               return true;
             }
             cc += dc;
@@ -134,11 +134,8 @@ export class ConnectFour {
     if (quality === "medium") {
       // Try to win in the next move
       for (const col of validColumns) {
-        const tempBoard = ConnectFour.placePiece(
-          { ...state, board: state.board },
-          col,
-        ).board;
-        if (ConnectFour.checkWinner(tempBoard)) {
+        const tempState = ConnectFour.placePiece(state, col);
+        if (tempState.winner === state.currentPlayer) {
           return col;
         }
       }
@@ -146,11 +143,11 @@ export class ConnectFour {
       // Block opponent's winning move
       const opponentColor = state.currentPlayer === "red" ? "yellow" : "red";
       for (const col of validColumns) {
-        const tempBoard = ConnectFour.placePiece(
-          { ...state, currentPlayer: opponentColor, board: state.board },
+        const tempState = ConnectFour.placePiece(
+          { ...state, currentPlayer: opponentColor },
           col,
-        ).board;
-        if (ConnectFour.checkWinner(tempBoard)) {
+        );
+        if (tempState.winner === opponentColor) {
           return col; // Block this move
         }
       }
@@ -192,9 +189,8 @@ export class ConnectFour {
   }
 
   /**
-   * Uses the minimax algorithm to determine the best move for the computer.
-   * @param board - The current game board.
-   * @param color - The computer's color.
+   * Uses the minimax algorithm with alpha-beta pruning to determine the best move for the computer.
+   * @param state - The current game state.
    */
   private static getBestMove(state: GameState): Coordinate {
     const opponentColor = state.currentPlayer === "red" ? "yellow" : "red";
@@ -203,11 +199,19 @@ export class ConnectFour {
     let bestScore = -Infinity;
     let bestColumn = validColumns[0];
 
-    for (const col of validColumns) {
+    // Implement move ordering: prioritize center column and adjacent columns
+    const center = Math.floor(ConnectFour.NUM_COLUMNS / 2);
+    const orderedColumns = validColumns.sort(
+      (a, b) => Math.abs(center - a) - Math.abs(center - b),
+    );
+
+    for (const col of orderedColumns) {
       const newState = ConnectFour.placePiece(state, col);
       const score = ConnectFour.minimax(
         newState,
-        4,
+        5, // Adjust depth as needed for performance
+        -Infinity,
+        Infinity,
         false,
         state.currentPlayer,
         opponentColor,
@@ -222,9 +226,11 @@ export class ConnectFour {
   }
 
   /**
-   * Minimax algorithm with depth limiting.
-   * @param board - The current game board.
+   * Minimax algorithm with alpha-beta pruning and depth limiting.
+   * @param state - The current game state.
    * @param depth - The depth limit for recursion.
+   * @param alpha - The alpha value for pruning.
+   * @param beta - The beta value for pruning.
    * @param isMaximizing - True if maximizing player, false otherwise.
    * @param playerColor - The computer's color.
    * @param opponentColor - The opponent's color.
@@ -232,42 +238,62 @@ export class ConnectFour {
   private static minimax(
     state: GameState,
     depth: number,
+    alpha: number,
+    beta: number,
     isMaximizing: boolean,
     playerColor: Color,
     opponentColor: Color,
   ): number {
     if (depth === 0 || state.isGameOver) {
-      return ConnectFour.evaluateBoard(state.board, playerColor);
+      return ConnectFour.evaluateBoard(state.board, playerColor, opponentColor);
     }
 
     const validColumns = ConnectFour.getValidColumns(state.board);
 
+    // Implement move ordering: prioritize center column and adjacent columns
+    const center = Math.floor(ConnectFour.NUM_COLUMNS / 2);
+    const orderedColumns = validColumns.sort(
+      (a, b) => Math.abs(center - a) - Math.abs(center - b),
+    );
+
     if (isMaximizing) {
       let maxEval = -Infinity;
-      for (const col of validColumns) {
+      for (const col of orderedColumns) {
         const newState = ConnectFour.placePiece(state, col);
         const evaluation = ConnectFour.minimax(
           newState,
           depth - 1,
+          alpha,
+          beta,
           false,
           playerColor,
           opponentColor,
         );
         maxEval = Math.max(maxEval, evaluation);
+        alpha = Math.max(alpha, evaluation);
+        if (beta <= alpha) {
+          break; // Beta cut-off
+        }
       }
       return maxEval;
     } else {
       let minEval = Infinity;
-      for (const col of validColumns) {
+      for (const col of orderedColumns) {
         const newState = ConnectFour.placePiece(state, col);
         const evaluation = ConnectFour.minimax(
           newState,
           depth - 1,
+          alpha,
+          beta,
           true,
           playerColor,
           opponentColor,
         );
         minEval = Math.min(minEval, evaluation);
+        beta = Math.min(beta, evaluation);
+        if (beta <= alpha) {
+          break; // Alpha cut-off
+        }
       }
       return minEval;
     }
@@ -276,14 +302,129 @@ export class ConnectFour {
   /**
    * Evaluates the board and returns a score.
    * @param board - The current game board.
-   * @param color - The computer's color.
+   * @param playerColor - The computer's color.
+   * @param opponentColor - The opponent's color.
    */
-  private static evaluateBoard(board: Board, color: Color): number {
-    // Simple evaluation: +1000 for win, -1000 for loss, 0 otherwise
-    if (ConnectFour.checkWinner(board)) {
-      return color === "red" ? 1000 : -1000;
+  private static evaluateBoard(
+    board: Board,
+    playerColor: Color,
+    opponentColor: Color,
+  ): number {
+    let score = 0;
+
+    // Score center column
+    const centerArray = board[Math.floor(ConnectFour.NUM_COLUMNS / 2)]!;
+    const centerCount = centerArray.filter(
+      (cell) => cell === playerColor,
+    ).length;
+    score += centerCount * 3;
+
+    // Score horizontal
+    score += ConnectFour.scoreDirection(
+      board,
+      playerColor,
+      opponentColor,
+      1,
+      0,
+    );
+    // Score vertical
+    score += ConnectFour.scoreDirection(
+      board,
+      playerColor,
+      opponentColor,
+      0,
+      1,
+    );
+    // Score diagonal /
+    score += ConnectFour.scoreDirection(
+      board,
+      playerColor,
+      opponentColor,
+      1,
+      1,
+    );
+    // Score diagonal \
+    score += ConnectFour.scoreDirection(
+      board,
+      playerColor,
+      opponentColor,
+      1,
+      -1,
+    );
+
+    return score;
+  }
+
+  /**
+   * Scores the board in a specific direction.
+   */
+  private static scoreDirection(
+    board: Board,
+    playerColor: Color,
+    opponentColor: Color,
+    dc: number,
+    dr: number,
+  ): number {
+    let score = 0;
+
+    for (let c = 0; c < ConnectFour.NUM_COLUMNS; c++) {
+      for (let r = 0; r < ConnectFour.NUM_ROWS; r++) {
+        const windowCells = [];
+        for (let i = 0; i < ConnectFour.WINNING_LENGTH; i++) {
+          const cc = c + i * dc;
+          const rr = r + i * dr;
+          if (
+            cc >= 0 &&
+            cc < ConnectFour.NUM_COLUMNS &&
+            rr >= 0 &&
+            rr < ConnectFour.NUM_ROWS
+          ) {
+            windowCells.push(board[cc]?.[rr]);
+          }
+        }
+        if (windowCells.length === ConnectFour.WINNING_LENGTH) {
+          score += ConnectFour.evaluateWindow(
+            windowCells as (Color | null)[],
+            playerColor,
+            opponentColor,
+          );
+        }
+      }
     }
-    return 0;
+
+    return score;
+  }
+
+  /**
+   * Evaluates a window of four cells and returns a score.
+   */
+  private static evaluateWindow(
+    windowCells: Cell[],
+    playerColor: Color,
+    opponentColor: Color,
+  ): number {
+    let score = 0;
+    const playerCount = windowCells.filter(
+      (cell) => cell === playerColor,
+    ).length;
+    const opponentCount = windowCells.filter(
+      (cell) => cell === opponentColor,
+    ).length;
+    const emptyCount = windowCells.filter((cell) => cell === null).length;
+
+    if (playerCount === 4) {
+      score += 100;
+    } else if (playerCount === 3 && emptyCount === 1) {
+      score += 5;
+    } else if (playerCount === 2 && emptyCount === 2) {
+      score += 2;
+    }
+
+    if (opponentCount === 3 && emptyCount === 1) {
+      score -= 4;
+    }
+
+    return score;
   }
 
   static isBoardFull(board: Board): boolean {
