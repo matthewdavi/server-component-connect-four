@@ -1,3 +1,3 @@
-export default async function Home() {
-  return <>connect four site</>;
-}
+import ConnectFourGame from "./connect-four/page";
+
+export default ConnectFourGame;

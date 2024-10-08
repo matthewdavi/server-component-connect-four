@@ -6,7 +6,7 @@ import { type Metadata } from "next";
 import { TRPCReactProvider } from "~/trpc/react";
 
 export const metadata: Metadata = {
-  title: "React connect four",
+  title: "Connect Four",
   description:
     "Play connect four as a server component with no client side JS!",
   icons: [{ rel: "icon", url: "/favicon.ico" }],
