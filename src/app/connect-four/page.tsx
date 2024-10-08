@@ -7,6 +7,7 @@ import {
 import Link from "next/link";
 import JSONCrush from "jsoncrush";
 import { z } from "zod";
+import { memoize } from "lodash-es";
 
 const ExtendedGameStateSchema = GameStateSchema.extend({
   newestPieceColumn: z.number().nullable(),
@@ -42,6 +43,20 @@ export default function ConnectFourGame({
     gameState = initialState;
   }
 
+  // Compute the computer's move if it's the computer's turn
+  if (!gameState.isGameOver && gameState.currentPlayer === "yellow") {
+    const computerMove = ConnectFour.getComputerMove(gameState, "best");
+    const computerState: GameState = ConnectFour.placePiece(
+      gameState,
+      computerMove,
+    );
+    gameState = {
+      ...computerState,
+      newestPieceColumn: gameState.newestPieceColumn,
+      newestComputerPieceColumn: computerMove,
+    };
+  }
+
   const {
     board,
     currentPlayer,
@@ -50,8 +65,8 @@ export default function ConnectFourGame({
     newestPieceColumn,
     newestComputerPieceColumn,
   } = gameState;
-  console.log("got game state", gameState);
-  function getNextState(column: number): ExtendedGameState {
+
+  const getNextState = memoize((column: number): ExtendedGameState => {
     if (isGameOver) return gameState;
 
     // Player's move (red)
@@ -59,25 +74,11 @@ export default function ConnectFourGame({
     const playerExtendedState: ExtendedGameState = {
       ...playerState,
       newestPieceColumn: column,
-      newestComputerPieceColumn: gameState.newestComputerPieceColumn,
+      newestComputerPieceColumn: null, // Reset the computer's newest piece
     };
 
-    // Computer's move (yellow)
-    if (!playerState.isGameOver && playerState.currentPlayer === "yellow") {
-      const computerMove = ConnectFour.getComputerMove(playerState, "best");
-      const computerState: GameState = ConnectFour.placePiece(
-        playerState,
-        computerMove,
-      );
-      return {
-        ...computerState,
-        newestPieceColumn: column,
-        newestComputerPieceColumn: computerMove,
-      };
-    }
-
     return playerExtendedState;
-  }
+  });
 
   function renderCell(cell: Color | null, rowIndex: number, colIndex: number) {
     const cellColor =
@@ -92,7 +93,7 @@ export default function ConnectFourGame({
       const pieceRow = board[newestPieceColumn]?.findIndex(
         (cell) => cell !== null,
       );
-      if (pieceRow) {
+      if (pieceRow != null) {
         const isNewColumn = colIndex === newestPieceColumn;
         const isNewPiece = isNewColumn && rowIndex === 5 - pieceRow;
         if (isNewPiece) {
