@@ -176,3 +176,5 @@ export default function ConnectFourGame({
     </div>
   );
 }
+
+export const runtime = "edge";
