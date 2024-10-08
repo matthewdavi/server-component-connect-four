@@ -3,6 +3,7 @@ import {
   type GameState,
   type Color,
   GameStateSchema,
+  QualitySchema,
 } from "./ConnectFour";
 import Link from "next/link";
 import JSONCrush from "jsoncrush";
@@ -12,6 +13,7 @@ import { memoize } from "lodash-es";
 const ExtendedGameStateSchema = GameStateSchema.extend({
   newestPieceColumn: z.number().nullable(),
   newestComputerPieceColumn: z.number().nullable(),
+  minimaxQuality: QualitySchema,
 });
 
 type ExtendedGameState = z.infer<typeof ExtendedGameStateSchema>;
@@ -25,6 +27,7 @@ export default function ConnectFourGame({
     ...ConnectFour.createInitialState(),
     newestPieceColumn: null,
     newestComputerPieceColumn: null,
+    minimaxQuality: "best",
   };
 
   let gameState: ExtendedGameState;
@@ -45,7 +48,12 @@ export default function ConnectFourGame({
 
   // Compute the computer's move if it's the computer's turn
   if (!gameState.isGameOver && gameState.currentPlayer === "yellow") {
-    const computerMove = ConnectFour.getComputerMove(gameState, "best");
+    console.time("computer move");
+    const computerMove = ConnectFour.getComputerMove(
+      gameState,
+      gameState.minimaxQuality,
+    );
+    console.timeEnd("computer move");
     const computerState: GameState = ConnectFour.placePiece(
       gameState,
       computerMove,
@@ -53,6 +61,7 @@ export default function ConnectFourGame({
     gameState = {
       ...computerState,
       newestPieceColumn: gameState.newestPieceColumn,
+      minimaxQuality: gameState.minimaxQuality,
       newestComputerPieceColumn: computerMove,
     };
   }
@@ -73,6 +82,7 @@ export default function ConnectFourGame({
     const playerState: GameState = ConnectFour.placePiece(gameState, column);
     const playerExtendedState: ExtendedGameState = {
       ...playerState,
+      minimaxQuality: gameState.minimaxQuality,
       newestPieceColumn: column,
       newestComputerPieceColumn: null, // Reset the computer's newest piece
     };
@@ -143,6 +153,28 @@ export default function ConnectFourGame({
     );
   }
 
+  function renderQualityLink(quality: "bad" | "medium" | "best") {
+    const newState: ExtendedGameState = {
+      ...gameState,
+      minimaxQuality: quality,
+    };
+    const compressedState = JSONCrush.crush(JSON.stringify(newState));
+    const isActive = gameState.minimaxQuality === quality;
+
+    return (
+      <Link
+        href={`/connect-four?state=${compressedState}`}
+        className={`mx-1 rounded px-3 py-1 text-sm font-medium ${
+          isActive
+            ? "bg-blue-500 text-white"
+            : "bg-white text-blue-500 hover:bg-blue-100"
+        }`}
+      >
+        {quality.charAt(0).toUpperCase() + quality.slice(1)}
+      </Link>
+    );
+  }
+
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-gray-100">
       <h1 className="mb-8 text-4xl font-bold">Connect Four</h1>
@@ -169,10 +201,17 @@ export default function ConnectFourGame({
           Current player: {currentPlayer.toUpperCase()}
         </div>
       )}
-      <Link href="/connect-four">
-        <button className="mt-8 rounded bg-blue-500 px-4 py-2 text-white hover:bg-blue-600">
-          New Game
-        </button>
+      <div className="mt-4">
+        <span className="mr-2">CPU Quality:</span>
+        {renderQualityLink("bad")}
+        {renderQualityLink("medium")}
+        {renderQualityLink("best")}
+      </div>
+      <Link
+        href="/connect-four"
+        className="mt-8 rounded bg-blue-500 px-4 py-2 text-white hover:bg-blue-600"
+      >
+        New Game
       </Link>
     </div>
   );

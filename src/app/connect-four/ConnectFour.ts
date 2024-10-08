@@ -1,4 +1,5 @@
 import { z } from "zod";
+import stateCacheData from "./stateCache.json";
 
 const ColorSchema = z.enum(["red", "yellow"]);
 export type Color = z.infer<typeof ColorSchema>;
@@ -12,8 +13,8 @@ export type Board = z.infer<typeof BoardSchema>;
 const CoordinateSchema = z.number().int().min(0).max(6);
 type Coordinate = z.infer<typeof CoordinateSchema>;
 
-const QualitySchema = z.enum(["bad", "medium", "best"]);
-type Quality = z.infer<typeof QualitySchema>;
+export const QualitySchema = z.enum(["bad", "medium", "best"]);
+export type Quality = z.infer<typeof QualitySchema>;
 
 export const GameStateSchema = z.object({
   board: BoardSchema,
@@ -28,6 +29,8 @@ export class ConnectFour {
   static readonly NUM_COLUMNS = 7;
   static readonly NUM_ROWS = 6;
   static readonly WINNING_LENGTH = 4;
+  static readonly MAX_DEPTH = 4;
+  static stateCache: Record<string, number> = stateCacheData;
 
   /**
    * Creates an empty game board.
@@ -155,7 +158,16 @@ export class ConnectFour {
       // Else, pick a random column
       return ConnectFour.getRandomColumn(validColumns);
     }
+
     if (quality === "best") {
+      const serializedState = ConnectFour.serializeState(state);
+      const cachedMove = ConnectFour.stateCache[serializedState];
+
+      if (cachedMove !== undefined && validColumns.includes(cachedMove)) {
+        return cachedMove;
+      }
+
+      // If not in cache or invalid, compute the best move
       return ConnectFour.getBestMove(state);
     }
 
@@ -434,5 +446,85 @@ export class ConnectFour {
   static isBoardFull(board: Board): boolean {
     BoardSchema.parse(board);
     return board.every((column) => column.every((cell) => cell !== null));
+  }
+
+  /**
+   * Precomputes game states and their corresponding best moves.
+   */
+  //   static async precomputeStates(): Promise<void> {
+  //     const initialState = ConnectFour.createInitialState();
+  //     const queue: { state: GameState; depth: number }[] = [
+  //       { state: initialState, depth: 0 },
+  //     ];
+  //     const visitedStates = new Set<string>();
+
+  //     while (queue.length > 0) {
+  //       const { state, depth } = queue.shift()!;
+
+  //       const serializedState = ConnectFour.serializeState(state);
+  //       if (visitedStates.has(serializedState)) continue;
+  //       visitedStates.add(serializedState);
+
+  //       // Only compute the AI's move if it's the AI's turn
+  //       if (state.currentPlayer === "yellow" && !state.isGameOver) {
+  //         const aiMove = ConnectFour.getBestMove(state);
+  //         ConnectFour.stateCache[serializedState] = aiMove;
+  //       }
+
+  //       // If we haven't reached the maximum depth, add child states to the queue
+  //       if (depth < ConnectFour.MAX_DEPTH && !state.isGameOver) {
+  //         const validColumns = ConnectFour.getValidColumns(state.board);
+  //         for (const col of validColumns) {
+  //           const nextState = ConnectFour.placePiece(state, col);
+  //           queue.push({ state: nextState, depth: depth + 1 });
+  //         }
+  //       }
+  //     }
+
+  //     // Write the cache to a JSON file using dynamic imports
+  //     try {
+  //       const [fs, path] = await Promise.all([
+  //         import("fs/promises"),
+  //         import("path"),
+  //       ]);
+
+  //       const cacheFilePath = path.join(
+  //         process.cwd(),
+  //         "src",
+  //         "app",
+  //         "connect-four",
+  //         "stateCache.json",
+  //       );
+  //       await fs.writeFile(cacheFilePath, JSON.stringify(ConnectFour.stateCache));
+  //       console.log(
+  //         `Precomputed ${Object.keys(ConnectFour.stateCache).length} game states.`,
+  //       );
+  //     } catch (error) {
+  //       console.error("Error writing cache file:", error);
+  //     }
+  //   }
+
+  /**
+   * Serializes a game state into a unique string representation.
+   */
+  private static serializeState(state: GameState): string {
+    return state.board
+      .map((col) => col.map((cell) => cell ?? "0").join(""))
+      .join("|");
+  }
+
+  /**
+   * Gets the best move for the current state, using the precomputed cache if available.
+   */
+  static getBestCachedMove(state: GameState): Coordinate {
+    const serializedState = ConnectFour.serializeState(state);
+    const cachedMove = ConnectFour.stateCache[serializedState];
+
+    if (cachedMove !== undefined) {
+      return cachedMove;
+    }
+
+    // If not in cache, compute the best move
+    return ConnectFour.getBestMove(state);
   }
 }
