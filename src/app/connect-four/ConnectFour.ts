@@ -313,11 +313,11 @@ export class ConnectFour {
     let score = 0;
 
     // Score center column
-    const centerArray = board[Math.floor(ConnectFour.NUM_COLUMNS / 2)]!;
+    const centerArray = board.at(Math.floor(ConnectFour.NUM_COLUMNS / 2))!;
     const centerCount = centerArray.filter(
       (cell) => cell === playerColor,
     ).length;
-    score += centerCount * 3;
+    score += centerCount * 6; // Increase weight of center control
 
     // Score horizontal
     score += ConnectFour.scoreDirection(
@@ -413,15 +413,19 @@ export class ConnectFour {
     const emptyCount = windowCells.filter((cell) => cell === null).length;
 
     if (playerCount === 4) {
-      score += 100;
+      score += 100000; // Winning move
     } else if (playerCount === 3 && emptyCount === 1) {
-      score += 5;
+      score += 100; // Three in a row with an open spot
     } else if (playerCount === 2 && emptyCount === 2) {
-      score += 2;
+      score += 10; // Two in a row with two open spots
     }
 
-    if (opponentCount === 3 && emptyCount === 1) {
-      score -= 4;
+    if (opponentCount === 4) {
+      score -= 100000; // Opponent's winning move
+    } else if (opponentCount === 3 && emptyCount === 1) {
+      score -= 1000; // Block opponent's three in a row
+    } else if (opponentCount === 2 && emptyCount === 2) {
+      score -= 10; // Block opponent's two in a row
     }
 
     return score;
