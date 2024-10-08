@@ -50,7 +50,7 @@ export default function ConnectFourGame({
     newestPieceColumn,
     newestComputerPieceColumn,
   } = gameState;
-
+  console.log("got game state", gameState);
   function getNextState(column: number): ExtendedGameState {
     if (isGameOver) return gameState;
 
