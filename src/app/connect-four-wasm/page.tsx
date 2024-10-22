@@ -8,6 +8,7 @@ import Link from "next/link";
 import JSONCrush from "jsoncrush";
 import { z } from "zod";
 import { memoize } from "lodash-es";
+import { headers } from "next/headers";
 
 const CellSchema = z.union([
   z.literal("Empty"),
@@ -27,7 +28,9 @@ const ExtendedGameStateSchema = GameStateSchema.extend({
   minimaxQuality: z.enum(["bad", "medium", "best"]),
 });
 
-function convertWasmStateToTypescriptState(wasmState: ExtendedGameState) {
+export function convertWasmStateToTypescriptState(
+  wasmState: ExtendedGameState,
+) {
   return {
     board: wasmState.board.map((column) =>
       column.map((cell) =>
@@ -47,8 +50,8 @@ function convertWasmStateToTypescriptState(wasmState: ExtendedGameState) {
 
 type ExtendedGameState = z.infer<typeof ExtendedGameStateSchema>;
 
-const getConnectFour = async () => {
-  await ConnectFourWasm.init();
+const getConnectFour = async (baseUrl: string) => {
+  await ConnectFourWasm.init(baseUrl);
   return ConnectFourWasm;
 };
 
@@ -59,7 +62,12 @@ async function ConnectFourGame(props: {
 
   const searchParams = await props.searchParams;
 
-  const connectFour = await getConnectFour();
+  const headersList = await headers();
+  const host = headersList.get("host") ?? "";
+  const protocol = process.env.NODE_ENV === "development" ? "http" : "https";
+  const baseUrl = `${protocol}://${host}`;
+
+  const connectFour = await getConnectFour(baseUrl);
 
   if (!connectFour) {
     throw new Error("ConnectFourWasm module not initialized");
@@ -293,4 +301,4 @@ async function ConnectFourGame(props: {
 
 export { ConnectFourGame as default };
 
-export const runtime = "edge";
+export const runtime = "node";

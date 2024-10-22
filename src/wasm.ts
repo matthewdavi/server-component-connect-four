@@ -15,17 +15,17 @@ export class ConnectFourWasm {
 
   private constructor() {}
 
-  public static async init(): Promise<ConnectFourWasm> {
+  public static async init(baseUrl: string): Promise<ConnectFourWasm> {
     if (!ConnectFourWasm.instance) {
       ConnectFourWasm.instance = new ConnectFourWasm();
-      const wasmModule = await ConnectFourWasm.loadWasmModule();
+      const wasmModule = await ConnectFourWasm.loadWasmModule(baseUrl);
       await ConnectFourWasm.instance.initializeWasm(wasmModule);
     }
     return ConnectFourWasm.instance;
   }
 
-  private static async loadWasmModule(): Promise<InitInput> {
-    const response = await fetch("/connect_four_wasm_bg.wasm");
+  private static async loadWasmModule(baseUrl: string): Promise<InitInput> {
+    const response = await fetch(`${baseUrl}/connect_four_wasm_bg.wasm`);
     const arrayBuffer = await response.arrayBuffer();
     return new Uint8Array(arrayBuffer);
   }
