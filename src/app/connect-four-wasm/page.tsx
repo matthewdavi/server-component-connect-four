@@ -1,57 +1,72 @@
-import {
-  ConnectFour,
-  type GameState,
-  type Color,
-  GameStateSchema,
-  QualitySchema,
-} from "@connect-four/utils/src/ConnectFour";
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
+/* eslint-disable @typescript-eslint/no-unsafe-return */
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
+/* eslint-disable @typescript-eslint/no-unsafe-call */
+
+import { ConnectFourWasm } from "../../wasm";
 import Link from "next/link";
 import JSONCrush from "jsoncrush";
 import { z } from "zod";
 import { memoize } from "lodash-es";
 
+const CellSchema = z.union([
+  z.literal("Empty"),
+  z.object({ Filled: z.enum(["Red", "Yellow"]) }),
+]);
+
+const GameStateSchema = z.object({
+  board: z.array(z.array(CellSchema)),
+  current_player: z.enum(["Red", "Yellow"]),
+  is_game_over: z.boolean(),
+  winner: z.enum(["Red", "Yellow"]).nullable().optional(),
+});
+
 const ExtendedGameStateSchema = GameStateSchema.extend({
   newestPieceColumn: z.number().nullable(),
   newestComputerPieceColumn: z.number().nullable(),
-  minimaxQuality: QualitySchema,
+  minimaxQuality: z.enum(["bad", "medium", "best"]),
 });
 
-type ExtendedGameState = z.infer<typeof ExtendedGameStateSchema>;
-
-function convertTsToWasmGameState(tsState: ExtendedGameState) {
+function convertWasmStateToTypescriptState(wasmState: ExtendedGameState) {
   return {
-    board: tsState.board.map((column) =>
+    board: wasmState.board.map((column) =>
       column.map((cell) =>
-        cell === null
-          ? "Empty"
-          : {
-              Filled: (cell.charAt(0).toUpperCase() + cell.slice(1)) as
-                | "Red"
-                | "Yellow",
-            },
+        cell === "Empty" ? null : cell.Filled === "Red" ? "red" : "yellow",
       ),
     ),
-    current_player: (tsState.currentPlayer.charAt(0).toUpperCase() +
-      tsState.currentPlayer.slice(1)) as "Red" | "Yellow",
-    is_game_over: tsState.isGameOver,
-    winner: tsState.winner
-      ? ((tsState.winner.charAt(0).toUpperCase() + tsState.winner.slice(1)) as
-          | "Red"
-          | "Yellow")
+    currentPlayer: wasmState.current_player.toLowerCase() as "red" | "yellow",
+    isGameOver: wasmState.is_game_over,
+    winner: wasmState.winner
+      ? (wasmState.winner.toLowerCase() as "red" | "yellow")
       : null,
-    newestPieceColumn: tsState.newestPieceColumn,
-    newestComputerPieceColumn: tsState.newestComputerPieceColumn,
-    minimaxQuality: tsState.minimaxQuality,
+    newestPieceColumn: wasmState.newestPieceColumn,
+    newestComputerPieceColumn: wasmState.newestComputerPieceColumn,
+    minimaxQuality: wasmState.minimaxQuality,
   };
 }
 
-export default async function ConnectFourGame(props: {
+type ExtendedGameState = z.infer<typeof ExtendedGameStateSchema>;
+
+const getConnectFour = async () => {
+  await ConnectFourWasm.init();
+  return ConnectFourWasm;
+};
+
+async function ConnectFourGame(props: {
   searchParams: Promise<{ state?: string }>;
 }) {
   const timeStart = Date.now();
+
   const searchParams = await props.searchParams;
+
+  const connectFour = await getConnectFour();
+
+  if (!connectFour) {
+    throw new Error("ConnectFourWasm module not initialized");
+  }
+
   const initialState: ExtendedGameState = {
-    ...ConnectFour.createInitialState(),
+    ...connectFour.create_initial_state(),
     newestPieceColumn: null,
     newestComputerPieceColumn: null,
     minimaxQuality: "best",
@@ -64,6 +79,7 @@ export default async function ConnectFourGame(props: {
       const parsedState = JSON.parse(
         JSONCrush.uncrush(searchParams.state),
       ) as unknown;
+
       gameState = ExtendedGameStateSchema.parse(parsedState);
     } else {
       gameState = initialState;
@@ -73,19 +89,18 @@ export default async function ConnectFourGame(props: {
     gameState = initialState;
   }
 
-  // Compute the computer's move if it's the computer's turn
   let computerMoveTime = 0;
-  if (!gameState.isGameOver && gameState.currentPlayer === "yellow") {
-    const computerMoveStart = Date.now();
-    const computerMove = ConnectFour.getComputerMove(
+  // Compute the computer's move if it's the computer's turn
+  if (!gameState.is_game_over && gameState.current_player === "Yellow") {
+    const startComputerMove = Date.now();
+    const computerMove = connectFour.get_computer_move(
       gameState,
       gameState.minimaxQuality,
     );
-    computerMoveTime = Date.now() - computerMoveStart;
-    const computerState: GameState = ConnectFour.placePiece(
-      gameState,
-      computerMove,
-    );
+    computerMoveTime = Date.now() - startComputerMove;
+
+    const computerState = connectFour.place_piece(gameState, computerMove);
+    console.timeEnd("RUST place piece");
     gameState = {
       ...computerState,
       newestPieceColumn: gameState.newestPieceColumn,
@@ -96,18 +111,18 @@ export default async function ConnectFourGame(props: {
 
   const {
     board,
-    currentPlayer,
-    isGameOver,
+    current_player,
+    is_game_over,
     winner,
     newestPieceColumn,
     newestComputerPieceColumn,
   } = gameState;
 
   const getNextState = memoize((column: number): ExtendedGameState => {
-    if (isGameOver) return gameState;
+    if (is_game_over) return gameState;
 
     // Player's move (red)
-    const playerState: GameState = ConnectFour.placePiece(gameState, column);
+    const playerState = connectFour.place_piece(gameState, column);
     const playerExtendedState: ExtendedGameState = {
       ...playerState,
       minimaxQuality: gameState.minimaxQuality,
@@ -118,18 +133,22 @@ export default async function ConnectFourGame(props: {
     return playerExtendedState;
   });
 
-  function renderCell(cell: Color | null, rowIndex: number, colIndex: number) {
+  function renderCell(
+    cell: z.infer<typeof CellSchema>,
+    rowIndex: number,
+    colIndex: number,
+  ) {
     const cellColor =
-      cell === "red"
-        ? "bg-red-500"
-        : cell === "yellow"
-          ? "bg-yellow-500"
-          : "bg-white";
+      cell === "Empty"
+        ? "bg-white"
+        : cell.Filled === "Red"
+          ? "bg-red-500"
+          : "bg-yellow-500";
 
     let animationClass = "";
     if (newestPieceColumn != null) {
       const pieceRow = board[newestPieceColumn]?.findIndex(
-        (cell) => cell !== null,
+        (cell) => cell !== "Empty",
       );
       if (pieceRow != null) {
         const isNewColumn = colIndex === newestPieceColumn;
@@ -142,7 +161,7 @@ export default async function ConnectFourGame(props: {
 
     if (newestComputerPieceColumn != null) {
       const computerPieceRow = board[newestComputerPieceColumn]?.findIndex(
-        (cell) => cell !== null,
+        (cell) => cell !== "Empty",
       );
       if (computerPieceRow != null) {
         const isNewComputerColumn = colIndex === newestComputerPieceColumn;
@@ -160,11 +179,11 @@ export default async function ConnectFourGame(props: {
       ></div>
     );
 
-    if (cell === null && !isGameOver) {
+    if (cell === "Empty" && !is_game_over) {
       const nextState = getNextState(colIndex);
       const compressedState = JSONCrush.crush(JSON.stringify(nextState));
       return (
-        <Link href={`/connect-four?state=${compressedState}`}>
+        <Link href={`/connect-four-wasm?state=${compressedState}`}>
           <div className="relative h-12 w-12 cursor-pointer rounded-full">
             <div className="absolute inset-0 rounded-full bg-white"></div>
             {cellContent}
@@ -191,7 +210,7 @@ export default async function ConnectFourGame(props: {
 
     return (
       <Link
-        href={`/connect-four?state=${compressedState}`}
+        href={`/connect-four-wasm?state=${compressedState}`}
         className={`mx-1 rounded px-3 py-1 text-sm font-medium ${
           isActive
             ? "bg-blue-500 text-white"
@@ -204,22 +223,22 @@ export default async function ConnectFourGame(props: {
   }
 
   function renderEngineToggle() {
-    const wasmState = convertTsToWasmGameState(gameState);
-    const compressedTsState = JSONCrush.crush(JSON.stringify(gameState));
-    const compressedWasmState = JSONCrush.crush(JSON.stringify(wasmState));
+    const tsState = convertWasmStateToTypescriptState(gameState);
+    const compressedTsState = JSONCrush.crush(JSON.stringify(tsState));
+    const compressedWasmState = JSONCrush.crush(JSON.stringify(gameState));
 
     return (
       <div className="mt-4 flex items-center">
         <span className="mr-2">Engine:</span>
         <Link
           href={`/connect-four?state=${compressedTsState}`}
-          className="mx-1 rounded bg-blue-500 px-3 py-1 text-sm font-medium text-white"
+          className="mx-1 rounded bg-white px-3 py-1 text-sm font-medium text-blue-500 hover:bg-blue-100"
         >
           TypeScript
         </Link>
         <Link
           href={`/connect-four-wasm?state=${compressedWasmState}`}
-          className="mx-1 rounded bg-white px-3 py-1 text-sm font-medium text-blue-500 hover:bg-blue-100"
+          className="mx-1 rounded bg-blue-500 px-3 py-1 text-sm font-medium text-white"
         >
           WASM
         </Link>
@@ -229,7 +248,7 @@ export default async function ConnectFourGame(props: {
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-gray-100">
-      <h1 className="mb-8 text-4xl font-bold">Connect Four</h1>
+      <h1 className="mb-8 text-4xl font-bold">Connect Four (WASM)</h1>
       <div className="rounded-lg bg-blue-500 p-4">
         <div className="grid grid-cols-7 gap-1">
           {board.map((column, colIndex) => (
@@ -243,14 +262,14 @@ export default async function ConnectFourGame(props: {
           ))}
         </div>
       </div>
-      {isGameOver && (
+      {is_game_over && (
         <div className="mt-4 text-xl font-semibold">
           {winner ? `${winner.toUpperCase()} wins!` : "It's a draw!"}
         </div>
       )}
-      {!isGameOver && (
+      {!is_game_over && (
         <div className="mt-4 text-xl font-semibold">
-          Current player: {currentPlayer.toUpperCase()}
+          Current player: {current_player.toUpperCase()}
         </div>
       )}
       <small>Page constructed in {Date.now() - timeStart}ms</small>
@@ -263,7 +282,7 @@ export default async function ConnectFourGame(props: {
       </div>
       {renderEngineToggle()}
       <Link
-        href="/connect-four"
+        href="/connect-four-wasm"
         className="mt-8 rounded bg-blue-500 px-4 py-2 text-white hover:bg-blue-600"
       >
         New Game
@@ -271,5 +290,7 @@ export default async function ConnectFourGame(props: {
     </div>
   );
 }
+
+export { ConnectFourGame as default };
 
 export const runtime = "edge";

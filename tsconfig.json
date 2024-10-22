@@ -26,7 +26,9 @@
     /* Path Aliases */
     "baseUrl": ".",
     "paths": {
-      "~/*": ["./src/*"]
+      "~/*": ["./src/*"],
+      "@connect-four/utils": ["../../packages/utils/src"],
+      "@connect-four/wasm": ["../../packages/connect_four_rust/"]
     }
   },
   "include": [
